@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  voting-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_CONVEX_URL=${NEXT_PUBLIC_CONVEX_URL}
+    container_name: voting-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Convex
+      - CONVEX_DEPLOYMENT=${CONVEX_DEPLOYMENT}
+      - NEXT_PUBLIC_CONVEX_URL=${NEXT_PUBLIC_CONVEX_URL}
+      
+      # Discord OAuth
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
+      - DISCORD_CLIENT_SECRET=${DISCORD_CLIENT_SECRET}
+      
+      # Discord Bot
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - DISCORD_SERVER_ID=${DISCORD_SERVER_ID}
+      - DISCORD_ADMIN_ROLE_IDS=${DISCORD_ADMIN_ROLE_IDS}
+      - DISCORD_ANNOUNCEMENTS_CHANNEL_ID=${DISCORD_ANNOUNCEMENTS_CHANNEL_ID}
+      
+      # NextAuth
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
