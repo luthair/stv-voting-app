@@ -26,7 +26,7 @@ export function Nav() {
   }
 
   return (
-    <nav className="border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-950">
+    <nav className="border-b border-gray-200 bg-white bg-white dark:bg-[#383838]">
       <div className="container mx-auto flex items-center justify-between px-6 py-4">
         <div className="flex items-center gap-6">
           <Link href="/voting" className="text-xl font-bold text-gray-900 dark:text-white">
@@ -54,7 +54,7 @@ export function Nav() {
             variant="outline"
             size="sm"
             onClick={toggleTheme}
-            className="h-8 w-8 p-0 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700"
+            className="h-8 w-8 p-0 bg-white dark:bg-[#18181b] dark:hover:bg-[#181818]"
           >
             {theme === "dark" ? (
               <SunIcon className="h-4 w-4" />
@@ -69,7 +69,7 @@ export function Nav() {
             variant="outline"
             size="sm"
             onClick={() => signOut({ callbackUrl: "/" })}
-            className="dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-white"
+            className="bg-white dark:bg-[#18181b] dark:hover:bg-[#181818] dark:text-white"
           >
             Sign Out
           </Button>

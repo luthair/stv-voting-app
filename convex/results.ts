@@ -43,6 +43,50 @@ export const getBallotsInternal = internalQuery({
   },
 });
 
+/**
+ * Breaks ties between candidates by examining historical preference rankings.
+ * Eliminates the candidate who received the fewest votes at the earliest preference level.
+ */
+function breakTieByHistoricalPreferences(
+  tiedCandidates: Id<"candidates">[],
+  ballots: any[],
+  winners: Id<"candidates">[],
+  eliminated: Id<"candidates">[]
+): Id<"candidates"> {
+  // For each preference level (0 = 1st choice, 1 = 2nd choice, etc.)
+  for (let prefLevel = 0; prefLevel < tiedCandidates.length; prefLevel++) {
+    const preferenceCounts: Record<string, number> = {};
+
+    // Count how many ballots have each tied candidate at this preference level
+    for (const ballot of ballots) {
+      if (prefLevel < ballot.rankedCandidateIds.length) {
+        const candidateAtLevel = ballot.rankedCandidateIds[prefLevel];
+        // Only count if this candidate is still in the tied group
+        if (tiedCandidates.includes(candidateAtLevel)) {
+          preferenceCounts[candidateAtLevel] = (preferenceCounts[candidateAtLevel] || 0) + 1;
+        }
+      }
+    }
+
+    // Find candidates with the minimum count at this level
+    const minCount = Math.min(...tiedCandidates.map(id => preferenceCounts[id] || 0));
+    const candidatesWithMinCount = tiedCandidates.filter(id => (preferenceCounts[id] || 0) === minCount);
+
+    // If only one candidate has the minimum count, eliminate them
+    if (candidatesWithMinCount.length === 1) {
+      return candidatesWithMinCount[0];
+    }
+
+    // If still tied, continue to next preference level
+    // (candidatesWithMinCount becomes the new tied group for the next iteration)
+    tiedCandidates = candidatesWithMinCount;
+  }
+
+  // If we get here, all candidates are still tied through all preference levels
+  // Fall back to alphabetical order by candidate ID (deterministic but arbitrary)
+  return tiedCandidates.sort()[0];
+}
+
 export const computeSTV = action({
   args: {
     cycleId: v.id("cycles"),
@@ -110,16 +154,28 @@ export const computeSTV = action({
       });
 
       // Check for winners (candidates at or above quota)
-      const newWinners = candidateIds.filter(
-        (id) =>
-          !winners.includes(id) &&
-          !eliminated.includes(id) &&
-          (currentVotes[id] || 0) >= quota
-      );
+      // Sort by votes descending to elect highest vote-getters first if multiple reach quota
+      const potentialWinners = candidateIds
+        .filter(
+          (id) =>
+            !winners.includes(id) &&
+            !eliminated.includes(id) &&
+            (currentVotes[id] || 0) >= quota
+        )
+        .sort((a, b) => (currentVotes[b] || 0) - (currentVotes[a] || 0));
+      
+      // Only elect enough to fill remaining seats
+      const seatsRemaining = seats - winners.length;
+      const newWinners = potentialWinners.slice(0, seatsRemaining);
 
       if (newWinners.length > 0) {
         winners.push(...newWinners);
         rounds[rounds.length - 1].elected = [...newWinners];
+
+        // If we've filled all seats, stop here
+        if (winners.length >= seats) {
+          break;
+        }
 
         // Transfer surplus votes
         for (const winnerId of newWinners) {
@@ -165,9 +221,18 @@ export const computeSTV = action({
         );
         if (remaining.length === 0) break;
 
-        const lowest = remaining.reduce((min, id) =>
-          (currentVotes[id] || 0) < (currentVotes[min] || 0) ? id : min
-        );
+        // Find all candidates with the lowest vote count
+        const minVotes = Math.min(...remaining.map(id => currentVotes[id] || 0));
+        const tiedCandidates = remaining.filter(id => (currentVotes[id] || 0) === minVotes);
+
+        let lowest: Id<"candidates">;
+        if (tiedCandidates.length === 1) {
+          // No tie, eliminate the only lowest candidate
+          lowest = tiedCandidates[0];
+        } else {
+          // Tie-breaking: use historical preference rankings
+          lowest = breakTieByHistoricalPreferences(tiedCandidates, ballots, winners, eliminated);
+        }
 
         eliminated.push(lowest);
         rounds[rounds.length - 1].eliminated = lowest;

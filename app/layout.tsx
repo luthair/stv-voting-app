@@ -21,7 +21,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geistMono.variable} dark`} suppressHydrationWarning>
       <body
-        className={`font-mono antialiased bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100`}
+        className={`font-mono antialiased bg-background text-foreground`}
       >
         <Providers>{children}</Providers>
       </body>

@@ -83,37 +83,46 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.67 0.26 322);
-  --primary-foreground: oklch(0.98 0.02 320);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.371 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.83 0.13 321);
-  --chart-2: oklch(0.75 0.21 322);
-  --chart-3: oklch(0.67 0.26 322);
-  --chart-4: oklch(0.59 0.26 323);
-  --chart-5: oklch(0.52 0.23 324);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.75 0.21 322);
-  --sidebar-primary-foreground: oklch(0.98 0.02 320);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Zinc metallic greys - using !important to override shadcn defaults */
+  --background: #383838 !important;
+  --foreground: #fafafa !important;
+  --card: #18181b !important;
+  --card-foreground: #fafafa !important;
+  --popover: #18181b !important;
+  --popover-foreground: #fafafa !important;
+  
+  /* Cyan accent colors */
+  --primary: oklch(0.75 0.15 195) !important;
+  --primary-foreground: #09090b !important;
+  --secondary: #27272a !important;
+  --secondary-foreground: #fafafa !important;
+  --muted: #27272a !important;
+  --muted-foreground: #a1a1aa !important;
+  --accent: oklch(0.45 0.12 195) !important;
+  --accent-foreground: #fafafa !important;
+  --destructive: oklch(0.65 0.2 25) !important;
+  
+  /* Borders and inputs */
+  --border: #3f3f46 !important;
+  --input: #27272a !important;
+  --ring: oklch(0.7 0.12 195) !important;
+  
+  /* Cyan-based chart colors */
+  --chart-1: oklch(0.8 0.14 195) !important;
+  --chart-2: oklch(0.7 0.15 190) !important;
+  --chart-3: oklch(0.6 0.13 200) !important;
+  --chart-4: oklch(0.5 0.11 195) !important;
+  --chart-5: oklch(0.4 0.09 195) !important;
+  
+  /* Sidebar */
+  --sidebar: #18181b !important;
+  --sidebar-foreground: #fafafa !important;
+  --sidebar-primary: oklch(0.75 0.15 195) !important;
+  --sidebar-primary-foreground: #09090b !important;
+  --sidebar-accent: #27272a !important;
+  --sidebar-accent-foreground: #fafafa !important;
+  --sidebar-border: #3f3f46 !important;
+  --sidebar-ring: oklch(0.7 0.12 195) !important;
 }
 
 @layer base {
@@ -122,5 +131,32 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+  
+  /* Force dark color scheme for native browser elements in dark mode */
+  .dark {
+    color-scheme: dark;
+  }
+  
+  /* Style datetime-local inputs in dark mode */
+  .dark input[type="datetime-local"],
+  .dark input[type="date"],
+  .dark input[type="time"] {
+    color-scheme: dark;
+  }
+  
+  /* Style the calendar picker icon */
+  .dark input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+  .dark input[type="date"]::-webkit-calendar-picker-indicator,
+  .dark input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.7) sepia(1) saturate(3) hue-rotate(145deg);
+    cursor: pointer;
+    opacity: 0.8;
+  }
+  
+  .dark input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+  .dark input[type="date"]::-webkit-calendar-picker-indicator:hover,
+  .dark input[type="time"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
   }
 }

@@ -73,6 +73,27 @@ export const getAnswers = query({
   },
 });
 
+export const getMyAnswers = query({
+  args: { 
+    cycleId: v.id("cycles"),
+    candidateUserId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    const answers = await ctx.db
+      .query("candidateAnswers")
+      .withIndex("by_cycle", (q) => q.eq("cycleId", args.cycleId))
+      .filter((q) => q.eq(q.field("candidateUserId"), args.candidateUserId))
+      .collect();
+
+    // Return as a map of questionId -> answer
+    const answerMap: Record<string, string> = {};
+    for (const a of answers) {
+      answerMap[a.questionId] = a.answer;
+    }
+    return answerMap;
+  },
+});
+
 export const submitAnswer = mutation({
   args: {
     cycleId: v.id("cycles"),

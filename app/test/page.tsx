@@ -21,6 +21,39 @@ const DUMMY_USERS = [
   { name: "Eve Test", discordId: "dummy_eve_005" },
   { name: "Frank Test", discordId: "dummy_frank_006" },
   { name: "Grace Test", discordId: "dummy_grace_007" },
+  { name: "Henry Test", discordId: "dummy_henry_008" },
+  { name: "Ivy Test", discordId: "dummy_ivy_009" },
+  { name: "Jack Test", discordId: "dummy_jack_010" },
+  { name: "Kate Test", discordId: "dummy_kate_011" },
+  { name: "Leo Test", discordId: "dummy_leo_012" },
+  { name: "Mia Test", discordId: "dummy_mia_013" },
+  { name: "Noah Test", discordId: "dummy_noah_014" },
+  { name: "Olivia Test", discordId: "dummy_olivia_015" },
+  { name: "Paul Test", discordId: "dummy_paul_016" },
+  { name: "Quinn Test", discordId: "dummy_quinn_017" },
+  { name: "Ruby Test", discordId: "dummy_ruby_018" },
+  { name: "Sam Test", discordId: "dummy_sam_019" },
+  { name: "Tina Test", discordId: "dummy_tina_020" },
+  { name: "Uma Test", discordId: "dummy_uma_021" },
+  { name: "Victor Test", discordId: "dummy_victor_022" },
+  { name: "Wendy Test", discordId: "dummy_wendy_023" },
+  { name: "Xavier Test", discordId: "dummy_xavier_024" },
+  { name: "Yara Test", discordId: "dummy_yara_025" },
+  { name: "Zane Test", discordId: "dummy_zane_026" },
+  { name: "Amber Test", discordId: "dummy_amber_027" },
+  { name: "Blake Test", discordId: "dummy_blake_028" },
+  { name: "Cora Test", discordId: "dummy_cora_029" },
+  { name: "Derek Test", discordId: "dummy_derek_030" },
+  { name: "Elena Test", discordId: "dummy_elena_031" },
+  { name: "Felix Test", discordId: "dummy_felix_032" },
+  { name: "Gwen Test", discordId: "dummy_gwen_033" },
+  { name: "Hugo Test", discordId: "dummy_hugo_034" },
+  { name: "Iris Test", discordId: "dummy_iris_035" },
+  { name: "Jules Test", discordId: "dummy_jules_036" },
+  { name: "Kira Test", discordId: "dummy_kira_037" },
+  { name: "Luna Test", discordId: "dummy_luna_038" },
+  { name: "Max Test", discordId: "dummy_max_039" },
+  { name: "Nina Test", discordId: "dummy_nina_040" },
 ];
 
 export default function TestPage() {
@@ -194,7 +227,7 @@ export default function TestPage() {
                 Click the button above to create dummy users first.
               </p>
             ) : (
-              <div className="border rounded-lg overflow-hidden">
+              <div className="border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
                 <table className="w-full">
                   <thead className="bg-muted">
                     <tr>
@@ -256,22 +289,41 @@ export default function TestPage() {
             <CardContent className="space-y-6">
               {/* Quick Nominate */}
               <div>
-                <h4 className="font-medium mb-2">Quick Nominate (first 3 eligible users nominate next 3)</h4>
-                <Button
-                  onClick={async () => {
-                    const eligible = eligibleUsers || [];
-                    for (let i = 0; i < Math.min(3, eligible.length); i++) {
-                      const nominator = eligible[i];
-                      const candidate = eligible[(i + 1) % eligible.length];
-                      if (nominator && candidate && nominator._id !== candidate._id) {
-                        await handleNominate(nominator._id, candidate._id);
+                <h4 className="font-medium mb-2">Quick Nominate</h4>
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    onClick={async () => {
+                      const eligible = eligibleUsers || [];
+                      for (let i = 0; i < Math.min(5, eligible.length); i++) {
+                        const nominator = eligible[i];
+                        const candidate = eligible[(i + 1) % eligible.length];
+                        if (nominator && candidate && nominator._id !== candidate._id) {
+                          await handleNominate(nominator._id, candidate._id);
+                        }
                       }
-                    }
-                    alert("Nominations created!");
-                  }}
-                >
-                  Auto-Nominate
-                </Button>
+                      alert("Nominations created!");
+                    }}
+                  >
+                    Auto-Nominate (5)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      const eligible = eligibleUsers || [];
+                      // Each eligible user nominates another
+                      for (let i = 0; i < eligible.length; i++) {
+                        const nominator = eligible[i];
+                        const candidate = eligible[(i + 1) % eligible.length];
+                        if (nominator && candidate && nominator._id !== candidate._id) {
+                          await handleNominate(nominator._id, candidate._id);
+                        }
+                      }
+                      alert(`${eligible.length} nominations created!`);
+                    }}
+                  >
+                    Auto-Nominate All Eligible
+                  </Button>
+                </div>
               </div>
 
               {/* Submit Questions */}
@@ -336,24 +388,53 @@ export default function TestPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {questionVotes?.map((q) => (
-                  <div key={q._id} className="border p-3 rounded">
-                    <p className="mb-2">{q.text}</p>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm text-muted-foreground">{q.voteCount} votes</span>
-                      {dummyUsers.slice(0, 4).map((user) => (
-                        <Button
-                          key={user._id}
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleVoteQuestion(user._id, q._id)}
-                        >
-                          Vote as {user.displayName?.split(" ")[0]}
-                        </Button>
-                      ))}
+                <Button
+                  className="mb-4"
+                  onClick={async () => {
+                    const questions = questionVotes || [];
+                    // Have each dummy user vote on random questions
+                    for (const user of dummyUsers) {
+                      // Vote on 2-4 random questions per user
+                      const numVotes = Math.floor(Math.random() * 3) + 2;
+                      const shuffled = [...questions].sort(() => Math.random() - 0.5);
+                      for (let i = 0; i < Math.min(numVotes, shuffled.length); i++) {
+                        try {
+                          await voteOnQuestion({
+                            cycleId: cycle._id,
+                            questionId: shuffled[i]._id,
+                            voterUserId: user._id,
+                          });
+                        } catch {
+                          // Already voted
+                        }
+                      }
+                    }
+                    alert("All dummy users have voted on questions!");
+                  }}
+                >
+                  All Dummy Users Vote Randomly
+                </Button>
+                
+                <div className="max-h-96 overflow-y-auto space-y-3">
+                  {questionVotes?.map((q) => (
+                    <div key={q._id} className="border p-3 rounded">
+                      <p className="mb-2">{q.text}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm text-muted-foreground font-medium">{q.voteCount} votes</span>
+                        {dummyUsers.slice(0, 6).map((user) => (
+                          <Button
+                            key={user._id}
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleVoteQuestion(user._id, q._id)}
+                          >
+                            +{user.displayName?.split(" ")[0]}
+                          </Button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </CardContent>
           </Card>

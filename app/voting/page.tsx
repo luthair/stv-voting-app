@@ -69,6 +69,14 @@ export default function VotingPage() {
     cycle ? { cycleId: cycle._id } : "skip"
   ) as CandidateWithUser[] | undefined;
   
+  // Get existing answers if user is a candidate
+  const myAnswers = useQuery(
+    api.candidates.getMyAnswers,
+    cycle && user
+      ? { cycleId: cycle._id, candidateUserId: user._id }
+      : "skip"
+  ) as Record<string, string> | undefined;
+  
   const ballot = useQuery(
     api.ballots.getByVoter,
     cycle && user
@@ -88,6 +96,8 @@ export default function VotingPage() {
   const [selectedCandidate, setSelectedCandidate] = useState<string>("");
   const [questionText, setQuestionText] = useState("");
   const [answerTexts, setAnswerTexts] = useState<Record<string, string>>({});
+  const [savedAnswers, setSavedAnswers] = useState<Record<string, boolean>>({});
+  const [savingAnswers, setSavingAnswers] = useState<Record<string, boolean>>({});
   const [rankedCandidates, setRankedCandidates] = useState<string[]>([]);
 
   useEffect(() => {
@@ -101,6 +111,28 @@ export default function VotingPage() {
       setRankedCandidates(ballot.rankedCandidateIds as string[]);
     }
   }, [ballot]);
+
+  // Load existing answers when myAnswers data arrives
+  useEffect(() => {
+    if (myAnswers && Object.keys(myAnswers).length > 0) {
+      setAnswerTexts((prev) => {
+        const updated = { ...prev };
+        for (const [questionId, answer] of Object.entries(myAnswers)) {
+          // Only set if not already edited locally
+          if (!updated[questionId]) {
+            updated[questionId] = answer;
+          }
+        }
+        return updated;
+      });
+      // Mark existing answers as saved
+      const saved: Record<string, boolean> = {};
+      for (const questionId of Object.keys(myAnswers)) {
+        saved[questionId] = true;
+      }
+      setSavedAnswers(saved);
+    }
+  }, [myAnswers]);
 
   if (!cycle) {
     return (
@@ -393,38 +425,87 @@ export default function VotingPage() {
               <CardHeader>
                 <CardTitle>Answer Questions</CardTitle>
                 <CardDescription>
-                  Provide answers to the selected questions
+                  Provide answers to the selected questions. Your answers are automatically loaded if previously saved.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-6">
                 {questions
                   ?.filter((q: QuestionWithAuthor) => q.status === "approved")
-                  .map((q: QuestionWithAuthor) => (
-                    <div key={q._id} className="space-y-2">
-                      <p className="font-medium">{q.text}</p>
-                      <Textarea
-                        value={answerTexts[q._id] || ""}
-                        onChange={(e) =>
-                          setAnswerTexts({ ...answerTexts, [q._id]: e.target.value })
-                        }
-                        placeholder="Your answer..."
-                      />
-                      <Button
-                        size="sm"
-                        onClick={async () => {
-                          if (!user || !cycle) return;
-                          await submitAnswer({
-                            cycleId: cycle._id,
-                            candidateUserId: user._id,
-                            questionId: q._id,
-                            answer: answerTexts[q._id],
-                          });
-                        }}
+                  .map((q: QuestionWithAuthor) => {
+                    const isSaved = savedAnswers[q._id] && answerTexts[q._id] === myAnswers?.[q._id];
+                    const hasChanges = answerTexts[q._id] !== (myAnswers?.[q._id] || "");
+                    const isSaving = savingAnswers[q._id];
+                    
+                    return (
+                      <div 
+                        key={q._id} 
+                        className={`p-4 rounded-lg border-2 transition-colors ${
+                          isSaved && !hasChanges
+                            ? "border-green-500 bg-green-50 dark:bg-green-950/30" 
+                            : hasChanges 
+                              ? "border-yellow-500 bg-yellow-50 dark:bg-yellow-950/30"
+                              : "border-muted"
+                        }`}
                       >
-                        Save Answer
-                      </Button>
-                    </div>
-                  ))}
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <p className="font-medium">{q.text}</p>
+                          {isSaved && !hasChanges && (
+                            <span className="text-xs text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/50 px-2 py-1 rounded shrink-0">
+                              ✓ Saved
+                            </span>
+                          )}
+                          {hasChanges && (
+                            <span className="text-xs text-yellow-600 dark:text-yellow-400 bg-yellow-100 dark:bg-yellow-900/50 px-2 py-1 rounded shrink-0">
+                              Unsaved changes
+                            </span>
+                          )}
+                        </div>
+                        <Textarea
+                          value={answerTexts[q._id] || ""}
+                          onChange={(e) => {
+                            setAnswerTexts({ ...answerTexts, [q._id]: e.target.value });
+                          }}
+                          placeholder="Your answer..."
+                          className="mb-3"
+                          rows={4}
+                        />
+                        <div className="flex items-center gap-3">
+                          <Button
+                            size="sm"
+                            disabled={isSaving || !answerTexts[q._id]?.trim()}
+                            onClick={async () => {
+                              if (!user || !cycle) return;
+                              setSavingAnswers((prev) => ({ ...prev, [q._id]: true }));
+                              try {
+                                await submitAnswer({
+                                  cycleId: cycle._id,
+                                  candidateUserId: user._id,
+                                  questionId: q._id,
+                                  answer: answerTexts[q._id],
+                                });
+                                setSavedAnswers((prev) => ({ ...prev, [q._id]: true }));
+                              } finally {
+                                setSavingAnswers((prev) => ({ ...prev, [q._id]: false }));
+                              }
+                            }}
+                          >
+                            {isSaving ? "Saving..." : isSaved && !hasChanges ? "Saved ✓" : "Save Answer"}
+                          </Button>
+                          {myAnswers?.[q._id] && hasChanges && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setAnswerTexts((prev) => ({ ...prev, [q._id]: myAnswers[q._id] }));
+                              }}
+                            >
+                              Revert
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
               </CardContent>
             </Card>
           )}
