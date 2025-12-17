@@ -10,7 +10,7 @@ services:
     container_name: voting-app
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3300:3000"
     environment:
       # Convex
       - CONVEX_DEPLOYMENT=${CONVEX_DEPLOYMENT}
