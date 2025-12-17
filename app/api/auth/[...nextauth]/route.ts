@@ -97,7 +97,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       try {
         await convex.mutation(api.users.createOrUpdate, {
           discordId,
-          displayName: user.name || profile?.username || "Unknown",
+          displayName: user.name || (typeof profile?.username === 'string' ? profile.username : null) || "Unknown",
           avatarUrl: user.image || null,
           isMember,
           isAdmin,
