@@ -155,7 +155,8 @@ export function VoteFlowSankey({ rounds, candidates, totalSeats }: VoteFlowSanke
     const currentRound = rounds[i];
     const nextRound = rounds[i + 1];
 
-    // For each candidate in the next round, show vote flows
+    // For each candidate in the next round, link from the current round
+    // Now includes elected candidates for visibility
     Object.entries(nextRound.candidateVotes).forEach(([candidateId]) => {
       const sourceKey = `${i}-${candidateId}`;
       const targetKey = `${i + 1}-${candidateId}`;
@@ -164,21 +165,19 @@ export function VoteFlowSankey({ rounds, candidates, totalSeats }: VoteFlowSanke
       const targetIndex = nodeIndexMap.get(targetKey);
 
       if (sourceIndex !== undefined && targetIndex !== undefined) {
-        // In STV, candidates carry forward their votes from the previous round
-        // (after any redistribution that happened in the previous round)
-        const carriedVotes = currentRound.candidateVotes[candidateId] || 0;
+        // Base votes carried over
+        const prevVotes = currentRound.candidateVotes[candidateId] || 0;
+        const baseVotes = Math.max(0.1, prevVotes); // Minimum value for visibility
 
-        if (carriedVotes > 0) {
-          links.push({
-            source: sourceIndex,
-            target: targetIndex,
-            value: Math.max(0.1, carriedVotes),
-          });
-        }
+        links.push({
+          source: sourceIndex,
+          target: targetIndex,
+          value: baseVotes,
+        });
       }
     });
 
-    // Show transfers from eliminated candidates
+    // Show transfers from eliminated candidate
     if (currentRound.eliminated && currentRound.transfers) {
       const eliminatedKey = `${i}-${currentRound.eliminated}`;
       const eliminatedIndex = nodeIndexMap.get(eliminatedKey);
@@ -197,59 +196,6 @@ export function VoteFlowSankey({ rounds, candidates, totalSeats }: VoteFlowSanke
           }
         });
       }
-    }
-
-    // Show surplus redistribution from elected candidates
-    // When candidates get elected with surplus, that surplus gets redistributed
-    if (currentRound.elected && currentRound.transfers) {
-      // Group all surplus transfers and show them coming from elected candidates
-      const surplusTransfers = new Map<string, number>();
-
-      Object.entries(currentRound.transfers).forEach(([targetId, transferValue]) => {
-        if (transferValue > 0) {
-          surplusTransfers.set(targetId, (surplusTransfers.get(targetId) || 0) + transferValue);
-        }
-      });
-
-      // Show surplus flows from elected candidates to recipients
-      surplusTransfers.forEach((transferValue, targetId) => {
-        const targetKey = `${i + 1}-${targetId}`;
-        const targetIndex = nodeIndexMap.get(targetKey);
-
-        if (targetIndex !== undefined) {
-          // Distribute surplus proportionally from all elected candidates
-          let totalElectedWeight = 0;
-          const electedCandidates: Array<{id: string, weight: number, index: number}> = [];
-
-          currentRound.elected.forEach(electedId => {
-            const electedVotes = currentRound.candidateVotes[electedId] || 0;
-            if (electedVotes > 0) {
-              const electedKey = `${i}-${electedId}`;
-              const electedIndex = nodeIndexMap.get(electedKey);
-              if (electedIndex !== undefined) {
-                // Weight by vote count (candidates with more votes contribute more surplus)
-                const weight = electedVotes;
-                totalElectedWeight += weight;
-                electedCandidates.push({id: electedId, weight, index: electedIndex});
-              }
-            }
-          });
-
-          // Create flows from each elected candidate proportional to their vote weight
-          electedCandidates.forEach(({weight, index}) => {
-            const proportion = weight / totalElectedWeight;
-            const flowValue = transferValue * proportion;
-
-            if (flowValue > 0.05) { // Only show meaningful flows
-              links.push({
-                source: index,
-                target: targetIndex,
-                value: flowValue,
-              });
-            }
-          });
-        }
-      });
     }
   }
 
