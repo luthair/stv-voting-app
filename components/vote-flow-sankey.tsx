@@ -1,6 +1,8 @@
 "use client";
 
-import { Sankey, Tooltip, Layer, Rectangle } from "recharts";
+import { useEffect, useRef, useState } from "react";
+import { sankey, sankeyLinkHorizontal, sankeyLeft, sankeyRight } from "d3-sankey";
+import * as d3 from "d3";
 import type { RoundData, CandidateWithUser } from "@/lib/types";
 
 interface VoteFlowSankeyProps {
@@ -10,62 +12,420 @@ interface VoteFlowSankeyProps {
 }
 
 interface SankeyNode {
+  id: string;
   name: string;
+  layer: number; // Round number (0-indexed)
+  round: number; // Round number (1-indexed)
+  candidateId?: string;
+  isExhausted?: boolean;
   isTopVote?: boolean;
   isElected?: boolean;
   isEliminated?: boolean;
+  votes?: number;
 }
 
 interface SankeyLink {
-  source: number;
-  target: number;
+  source: string | SankeyNode;
+  target: string | SankeyNode;
   value: number;
 }
 
-// Custom node component for better styling
-function CustomNode({ x, y, width, height, payload }: {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  payload: { name: string; isTopVote?: boolean; isElected?: boolean; isEliminated?: boolean };
-}) {
-  const { isTopVote, isElected, isEliminated } = payload;
-
-  let fill = "#1f2937"; // darker grey for better distinction
-  if (isElected) fill = "#22c55e"; // brighter green for elected
-  else if (isTopVote) fill = "#15803d"; // darker green for top votes
-  else if (isEliminated) fill = "#dc2626"; // red for eliminated
-
-  return (
-    <Layer>
-      <Rectangle
-        x={x}
-        y={y}
-        width={width}
-        height={height}
-        fill={fill}
-        fillOpacity={0.95}
-        rx={4}
-        ry={4}
-        stroke={isElected ? "#16a34a" : isTopVote ? "#166534" : isEliminated ? "#b91c1c" : "#374151"}
-        strokeWidth={1}
-      />
-      <text
-        x={x + width + 6}
-        y={y + height / 2}
-        textAnchor="start"
-        dominantBaseline="middle"
-        className="text-xs fill-foreground"
-        style={{ fontSize: "11px" }}
-      >
-        {payload.name.replace(" (eliminated)", "").replace(" (elected)", "").replace(" (top vote)", "")}
-      </text>
-    </Layer>
-  );
-}
-
 export function VoteFlowSankey({ rounds, candidates, totalSeats }: VoteFlowSankeyProps) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 1200, height: 600 });
+
+  // Helper to get candidate name
+  const getCandidateName = (id: string) => {
+    const candidate = candidates.find((c) => c._id === id);
+    return candidate?.user?.displayName || "Unknown";
+  };
+
+  // Update dimensions on resize
+  useEffect(() => {
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        const containerWidth = containerRef.current.clientWidth;
+        const width = Math.max(800, containerWidth - 40); // Min 800px, account for padding
+        const height = Math.max(400, rounds.length * 150);
+        setDimensions({ width, height });
+      }
+    };
+
+    updateDimensions();
+    window.addEventListener("resize", updateDimensions);
+    return () => window.removeEventListener("resize", updateDimensions);
+  }, [rounds.length]);
+
+  useEffect(() => {
+    if (!svgRef.current || !rounds || rounds.length < 2) return;
+
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove();
+
+    const { width, height } = dimensions;
+    const margin = { top: 20, right: 200, bottom: 20, left: 20 };
+    const chartWidth = width - margin.left - margin.right;
+    const chartHeight = height - margin.top - margin.bottom;
+
+    // Track all candidates ever elected across all rounds
+    const allElectedCandidates = new Set<string>();
+
+    // Build nodes and links
+    const nodes: SankeyNode[] = [];
+    const links: SankeyLink[] = [];
+    const nodeMap = new Map<string, SankeyNode>();
+
+    // Create nodes for each round
+    rounds.forEach((round, roundIndex) => {
+      // Calculate remaining seats at start of this round
+      const electedBeforeThisRound = new Set<string>();
+      for (let i = 0; i < roundIndex; i++) {
+        if (rounds[i].elected) {
+          rounds[i].elected!.forEach(id => electedBeforeThisRound.add(id));
+        }
+      }
+
+      const seatsFilledBefore = electedBeforeThisRound.size;
+      const electedThisRound = round.elected?.length || 0;
+      const remainingSeatsAfterThisRound = totalSeats - seatsFilledBefore - electedThisRound;
+
+      // Get candidates for this round and calculate top votes
+      const roundCandidates = Object.entries(round.candidateVotes)
+        .filter(([candidateId]) => !electedBeforeThisRound.has(candidateId))
+        .sort(([, votesA], [, votesB]) => votesB - votesA);
+
+      const topVoteCandidates = new Set<string>();
+      let topVoteCount = 0;
+      for (const [candidateId] of roundCandidates) {
+        const wasElectedThisRound = round.elected?.includes(candidateId);
+        const isEliminated = round.eliminated === candidateId;
+        const isAlreadyElected = allElectedCandidates.has(candidateId);
+
+        // Skip elected and eliminated when counting top votes
+        if (!wasElectedThisRound && !isAlreadyElected && !isEliminated) {
+          if (topVoteCount < remainingSeatsAfterThisRound) {
+            topVoteCandidates.add(candidateId);
+            topVoteCount++;
+          }
+        }
+      }
+
+      // Create nodes for each candidate in this round
+      Object.entries(round.candidateVotes).forEach(([candidateId, votes]) => {
+        const wasEliminated = round.eliminated === candidateId;
+        const wasElectedThisRound = round.elected?.includes(candidateId);
+        const isAlreadyElected = allElectedCandidates.has(candidateId);
+        const isTopVote = topVoteCandidates.has(candidateId);
+
+        const nodeId = `${roundIndex}-${candidateId}`;
+        const node: SankeyNode = {
+          id: nodeId,
+          name: getCandidateName(candidateId),
+          layer: roundIndex,
+          round: round.round,
+          candidateId,
+          isTopVote,
+          isElected: wasElectedThisRound || isAlreadyElected,
+          isEliminated: wasEliminated,
+          votes
+        };
+
+        nodes.push(node);
+        nodeMap.set(nodeId, node);
+      });
+
+      // Add this round's elected candidates to the all-time elected set
+      if (round.elected) {
+        round.elected.forEach(id => allElectedCandidates.add(id));
+      }
+    });
+
+    // Create links between rounds
+    for (let i = 0; i < rounds.length - 1; i++) {
+      const currentRound = rounds[i];
+      const nextRound = rounds[i + 1];
+
+      // Track total votes transferred from eliminated candidate
+      let eliminatedVotesTransferred = 0;
+
+      // Show transfers from eliminated candidate
+      if (currentRound.eliminated && currentRound.transfers) {
+        const eliminatedNodeId = `${i}-${currentRound.eliminated}`;
+        const eliminatedNode = nodeMap.get(eliminatedNodeId);
+
+        if (eliminatedNode) {
+          Object.entries(currentRound.transfers).forEach(([targetId, transferValue]) => {
+            const targetNodeId = `${i + 1}-${targetId}`;
+            const targetNode = nodeMap.get(targetNodeId);
+
+            if (targetNode && transferValue > 0) {
+              links.push({
+                source: eliminatedNodeId,
+                target: targetNodeId,
+                value: transferValue
+              });
+              eliminatedVotesTransferred += transferValue;
+            }
+          });
+
+          // If eliminated candidate had votes but not all were transferred, create exhausted link
+          const eliminatedVotes = currentRound.candidateVotes[currentRound.eliminated] || 0;
+          const exhaustedVotes = eliminatedVotes - eliminatedVotesTransferred;
+
+          if (exhaustedVotes > 0.01) {
+            // Create exhausted node for this round if it doesn't exist
+            const exhaustedNodeId = `exhausted-${i}`;
+            if (!nodeMap.has(exhaustedNodeId)) {
+              const exhaustedNode: SankeyNode = {
+                id: exhaustedNodeId,
+                name: "Exhausted",
+                layer: i + 1,
+                round: i + 2,
+                isExhausted: true
+              };
+              nodes.push(exhaustedNode);
+              nodeMap.set(exhaustedNodeId, exhaustedNode);
+            }
+
+            links.push({
+              source: eliminatedNodeId,
+              target: exhaustedNodeId,
+              value: exhaustedVotes
+            });
+          }
+        }
+      }
+
+      // For each candidate continuing to next round, create base vote link
+      // Note: We only create links for candidates that existed in the previous round
+      // Transfers and surplus are handled separately
+      Object.entries(nextRound.candidateVotes).forEach(([candidateId]) => {
+        const sourceNodeId = `${i}-${candidateId}`;
+        const targetNodeId = `${i + 1}-${candidateId}`;
+        const sourceNode = nodeMap.get(sourceNodeId);
+        const targetNode = nodeMap.get(targetNodeId);
+
+        if (sourceNode && targetNode) {
+          // Base votes from previous round (before transfers/surplus)
+          const prevVotes = currentRound.candidateVotes[candidateId] || 0;
+          
+          // Only create link if candidate had votes in previous round
+          // (transfers and surplus are handled separately)
+          if (prevVotes > 0.01) {
+            // Check if this candidate was elected (surplus handled separately)
+            const wasElected = currentRound.elected?.includes(candidateId);
+            
+            if (!wasElected) {
+              // For non-elected candidates, base votes flow through
+              // But we need to account for what portion is base vs transfers
+              const receivedTransfers = currentRound.transfers?.[candidateId] || 0;
+              const nextRoundVotes = nextRound.candidateVotes[candidateId] || 0;
+              
+              // Base votes = min of previous votes or next round votes (after accounting for transfers)
+              // This ensures we don't double-count transfers
+              const baseVotes = Math.min(prevVotes, nextRoundVotes - receivedTransfers);
+              
+              if (baseVotes > 0.01) {
+                links.push({
+                  source: sourceNodeId,
+                  target: targetNodeId,
+                  value: baseVotes
+                });
+              }
+            } else {
+              // For elected candidates, calculate quota and show base votes up to quota
+              const totalVotes = Object.values(currentRound.candidateVotes).reduce((a, b) => a + b, 0);
+              const quota = Math.floor(totalVotes / (totalSeats + 1)) + 1;
+              const baseVotes = Math.min(prevVotes, quota);
+              
+              if (baseVotes > 0.01) {
+                links.push({
+                  source: sourceNodeId,
+                  target: targetNodeId,
+                  value: baseVotes
+                });
+              }
+            }
+          }
+        }
+      });
+
+      // Handle surplus votes from elected candidates
+      // Surplus is already accounted for in the transfers object, but we need to show
+      // the flow from elected candidates. The transfers object shows where votes went,
+      // so we can use that to create surplus links.
+      if (currentRound.elected && currentRound.transfers) {
+        currentRound.elected.forEach(electedId => {
+          const electedNodeId = `${i}-${electedId}`;
+          const electedNode = nodeMap.get(electedNodeId);
+          
+          if (electedNode) {
+            const electedVotes = currentRound.candidateVotes[electedId] || 0;
+            // Calculate quota (Droop quota)
+            const totalVotes = Object.values(currentRound.candidateVotes).reduce((a, b) => a + b, 0);
+            const quota = Math.floor(totalVotes / (totalSeats + 1)) + 1;
+            
+            if (electedVotes > quota) {
+              const surplus = electedVotes - quota;
+              
+              // Check transfers object for surplus distribution
+              // If transfers exist for this elected candidate's surplus, use those
+              // Otherwise, distribute proportionally to continuing candidates
+              const continuingCandidates = Object.keys(nextRound.candidateVotes).filter(id => id !== electedId);
+              
+              if (continuingCandidates.length > 0) {
+                // Distribute surplus proportionally based on next round votes
+                const totalNextRoundVotes = continuingCandidates.reduce(
+                  (sum, id) => sum + (nextRound.candidateVotes[id] || 0), 
+                  0
+                );
+                
+                if (totalNextRoundVotes > 0) {
+                  continuingCandidates.forEach(targetId => {
+                    const targetVotes = nextRound.candidateVotes[targetId] || 0;
+                    const proportion = targetVotes / totalNextRoundVotes;
+                    const surplusPortion = surplus * proportion;
+                    
+                    if (surplusPortion > 0.01) {
+                      const targetNodeId = `${i + 1}-${targetId}`;
+                      links.push({
+                        source: electedNodeId,
+                        target: targetNodeId,
+                        value: surplusPortion
+                      });
+                    }
+                  });
+                }
+              }
+            }
+          }
+        });
+      }
+    }
+
+    if (links.length === 0) {
+      svg.append("text")
+        .attr("x", width / 2)
+        .attr("y", height / 2)
+        .attr("text-anchor", "middle")
+        .attr("class", "fill-muted-foreground")
+        .text("No vote transfers to display");
+      return;
+    }
+
+    // Create Sankey layout with custom node alignment by round
+    const sankeyGenerator = sankey<SankeyNode, SankeyLink>()
+      .nodeId((d) => d.id)
+      .nodeAlign((node) => node.layer) // Align nodes by round (layer)
+      .nodeWidth(15)
+      .nodePadding(25)
+      .extent([[margin.left, margin.top], [chartWidth + margin.left, chartHeight + margin.top]]);
+
+    // Sort nodes within each layer
+    sankeyGenerator.nodeSort((a, b) => {
+      // Within same layer: elected first, then top votes, then others, eliminated last
+      if (a.isElected && !b.isElected) return -1;
+      if (!a.isElected && b.isElected) return 1;
+      if (a.isTopVote && !b.isTopVote) return -1;
+      if (!a.isTopVote && b.isTopVote) return 1;
+      if (a.isEliminated && !b.isEliminated) return 1;
+      if (!a.isEliminated && b.isEliminated) return -1;
+      if (a.isExhausted && !b.isExhausted) return 1;
+      if (!a.isExhausted && b.isExhausted) return -1;
+      
+      // Then sort by votes descending
+      return (b.votes || 0) - (a.votes || 0);
+    });
+
+    const { nodes: layoutNodes, links: layoutLinks } = sankeyGenerator({
+      nodes: nodes.map(n => ({ ...n })),
+      links: links.map(l => ({
+        source: typeof l.source === "string" ? l.source : l.source.id,
+        target: typeof l.target === "string" ? l.target : l.target.id,
+        value: l.value
+      }))
+    });
+
+    // Draw links
+    const link = svg.append("g")
+      .attr("class", "links")
+      .selectAll("path")
+      .data(layoutLinks)
+      .enter()
+      .append("path")
+      .attr("d", sankeyLinkHorizontal())
+      .attr("fill", "none")
+      .attr("stroke", "#71717a")
+      .attr("stroke-opacity", 0.5)
+      .attr("stroke-width", (d: any) => Math.max(1, d.width));
+
+    // Add tooltips to links
+    link.append("title")
+      .text((d: any) => `${d.source.name} → ${d.target.name}: ${d.value.toFixed(2)} votes`);
+
+    // Draw nodes
+    const node = svg.append("g")
+      .attr("class", "nodes")
+      .selectAll("rect")
+      .data(layoutNodes)
+      .enter()
+      .append("rect")
+      .attr("x", (d: any) => d.x0)
+      .attr("y", (d: any) => d.y0)
+      .attr("height", (d: any) => d.y1 - d.y0)
+      .attr("width", (d: any) => d.x1 - d.x0)
+      .attr("fill", (d: SankeyNode) => {
+        if (d.isExhausted) return "#6b7280"; // grey for exhausted
+        if (d.isElected) return "#22c55e"; // bright green for elected
+        if (d.isTopVote) return "#15803d"; // darker green for top votes
+        if (d.isEliminated) return "#dc2626"; // red for eliminated
+        return "#1f2937"; // darker grey for others
+      })
+      .attr("fill-opacity", 0.95)
+      .attr("rx", 4)
+      .attr("ry", 4)
+      .attr("stroke", (d: SankeyNode) => {
+        if (d.isExhausted) return "#4b5563";
+        if (d.isElected) return "#16a34a";
+        if (d.isTopVote) return "#166534";
+        if (d.isEliminated) return "#b91c1c";
+        return "#374151";
+      })
+      .attr("stroke-width", 1);
+
+    // Add labels (only for final round or exhausted nodes)
+    const label = svg.append("g")
+      .attr("class", "labels")
+      .selectAll("text")
+      .data(layoutNodes.filter((d: any) => d.layer === rounds.length - 1 || d.isExhausted))
+      .enter()
+      .append("text")
+      .attr("x", (d: any) => d.x1 + 6)
+      .attr("y", (d: any) => (d.y0 + d.y1) / 2)
+      .attr("dy", "0.35em")
+      .attr("text-anchor", "start")
+      .attr("class", "text-xs fill-foreground")
+      .style("font-size", "11px")
+      .text((d: SankeyNode) => {
+        if (d.isExhausted) return "Exhausted";
+        return d.name;
+      });
+
+    // Add tooltips to nodes
+    node.append("title")
+      .text((d: SankeyNode) => {
+        let text = `${d.name} (Round ${d.round})`;
+        if (d.isElected) text += " - Elected";
+        if (d.isTopVote) text += " - Top Vote";
+        if (d.isEliminated) text += " - Eliminated";
+        if (d.isExhausted) text += " - Exhausted";
+        if (d.votes !== undefined) text += `\n${d.votes.toFixed(2)} votes`;
+        return text;
+      });
+
+  }, [rounds, candidates, totalSeats, dimensions]);
+
   if (!rounds || rounds.length < 2) {
     return (
       <p className="text-sm text-muted-foreground text-center py-4">
@@ -74,178 +434,9 @@ export function VoteFlowSankey({ rounds, candidates, totalSeats }: VoteFlowSanke
     );
   }
 
-  // Build nodes and links for Sankey diagram
-  const nodes: SankeyNode[] = [];
-  const links: SankeyLink[] = [];
-  const nodeIndexMap = new Map<string, number>();
-
-  // Helper to get candidate name
-  const getCandidateName = (id: string) => {
-    const candidate = candidates.find((c) => c._id === id);
-    return candidate?.user?.displayName || "Unknown";
-  };
-
-  // Track all candidates ever elected across all rounds
-  const allElectedCandidates = new Set<string>();
-
-  // Create nodes for each candidate in each round (keep elected candidates visible)
-  rounds.forEach((round, roundIndex) => {
-    // Calculate remaining seats at start of this round
-    const electedBeforeThisRound = new Set<string>();
-    for (let i = 0; i < roundIndex; i++) {
-      if (rounds[i].elected) {
-        rounds[i].elected!.forEach(id => electedBeforeThisRound.add(id));
-      }
-    }
-
-    const seatsFilledBefore = electedBeforeThisRound.size;
-    const electedThisRound = round.elected?.length || 0;
-    const remainingSeatsAfterThisRound = totalSeats - seatsFilledBefore - electedThisRound;
-
-    // Get candidates for this round and calculate top votes
-    const roundCandidates = Object.entries(round.candidateVotes)
-      .filter(([candidateId]) => !electedBeforeThisRound.has(candidateId))
-      .sort(([, votesA], [, votesB]) => votesB - votesA);
-
-    const topVoteCandidates = new Set<string>();
-    let topVoteCount = 0;
-    for (const [candidateId] of roundCandidates) {
-      const wasElectedThisRound = round.elected?.includes(candidateId);
-      const isEliminated = round.eliminated === candidateId;
-      const isAlreadyElected = allElectedCandidates.has(candidateId);
-
-      // Skip elected and eliminated when counting top votes
-      if (!wasElectedThisRound && !isAlreadyElected && !isEliminated) {
-        if (topVoteCount < remainingSeatsAfterThisRound) {
-          topVoteCandidates.add(candidateId);
-          topVoteCount++;
-        }
-      }
-    }
-
-    Object.keys(round.candidateVotes).forEach((candidateId) => {
-      const wasEliminated = round.eliminated === candidateId;
-      const wasElectedThisRound = round.elected?.includes(candidateId);
-      const isAlreadyElected = allElectedCandidates.has(candidateId);
-      const isTopVote = topVoteCandidates.has(candidateId);
-
-      let nodeName = `R${round.round}: ${getCandidateName(candidateId)}`;
-      if (wasEliminated) nodeName += " (eliminated)";
-      if (wasElectedThisRound || isAlreadyElected) nodeName += " (elected)";
-      if (isTopVote && !wasElectedThisRound && !isAlreadyElected && !wasEliminated) nodeName += " (top vote)";
-
-      const nodeKey = `${roundIndex}-${candidateId}`;
-      nodeIndexMap.set(nodeKey, nodes.length);
-      nodes.push({
-        name: nodeName,
-        isTopVote,
-        isElected: wasElectedThisRound || isAlreadyElected,
-        isEliminated: wasEliminated
-      });
-    });
-
-    // Add this round's elected candidates to the all-time elected set
-    if (round.elected) {
-      round.elected.forEach(id => allElectedCandidates.add(id));
-    }
-  });
-
-  // Create links between rounds (vote transfers)
-  for (let i = 0; i < rounds.length - 1; i++) {
-    const currentRound = rounds[i];
-    const nextRound = rounds[i + 1];
-
-    // For each candidate in the next round, link from the current round
-    // Now includes elected candidates for visibility
-    Object.entries(nextRound.candidateVotes).forEach(([candidateId]) => {
-      const sourceKey = `${i}-${candidateId}`;
-      const targetKey = `${i + 1}-${candidateId}`;
-
-      const sourceIndex = nodeIndexMap.get(sourceKey);
-      const targetIndex = nodeIndexMap.get(targetKey);
-
-      if (sourceIndex !== undefined && targetIndex !== undefined) {
-        // Base votes carried over
-        const prevVotes = currentRound.candidateVotes[candidateId] || 0;
-        const baseVotes = Math.max(0.1, prevVotes); // Minimum value for visibility
-
-        links.push({
-          source: sourceIndex,
-          target: targetIndex,
-          value: baseVotes,
-        });
-      }
-    });
-
-    // Show transfers from eliminated candidate
-    if (currentRound.eliminated && currentRound.transfers) {
-      const eliminatedKey = `${i}-${currentRound.eliminated}`;
-      const eliminatedIndex = nodeIndexMap.get(eliminatedKey);
-
-      if (eliminatedIndex !== undefined) {
-        Object.entries(currentRound.transfers).forEach(([targetId, transferValue]) => {
-          const targetKey = `${i + 1}-${targetId}`;
-          const targetIndex = nodeIndexMap.get(targetKey);
-
-          if (targetIndex !== undefined && transferValue > 0) {
-            links.push({
-              source: eliminatedIndex,
-              target: targetIndex,
-              value: transferValue,
-            });
-          }
-        });
-      }
-    }
-  }
-
-  // Filter out any invalid links
-  const validLinks = links.filter(
-    (link) => link.source < nodes.length && link.target < nodes.length && link.value > 0
-  );
-
-  if (validLinks.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground text-center py-4">
-        No vote transfers to display
-      </p>
-    );
-  }
-
-  const data = { nodes, links: validLinks };
-  const height = Math.max(400, nodes.length * 25);
-
   return (
-    <div className="w-full overflow-x-auto">
-      <Sankey
-        width={1200}
-        height={height}
-        data={data}
-        node={<CustomNode x={0} y={0} width={0} height={0} payload={{ name: "", isTopVote: false, isElected: false, isEliminated: false }} />}
-        nodePadding={25}
-        nodeWidth={15}
-        linkCurvature={0.5}
-        margin={{ top: 20, right: 220, bottom: 20, left: 20 }}
-        link={{ stroke: "#71717a", strokeOpacity: 0.5 }}
-      >
-        <Tooltip
-          content={({ payload }) => {
-            if (payload && payload[0]) {
-              const data = payload[0].payload;
-              if (data.source && data.target) {
-                return (
-                  <div className="bg-card border rounded p-2 text-sm shadow-lg">
-                    <p>{data.source.name} → {data.target.name}</p>
-                    <p className="font-medium">{data.value.toFixed(2)} votes</p>
-                  </div>
-                );
-              }
-            }
-            return null;
-          }}
-        />
-      </Sankey>
+    <div ref={containerRef} className="w-full overflow-x-auto">
+      <svg ref={svgRef} width={dimensions.width} height={dimensions.height} />
     </div>
   );
 }
-
